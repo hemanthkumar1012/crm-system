@@ -1,12 +1,14 @@
 {
   "name": "backend",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Production backend for the Support CRM System",
+  "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --check server.js && node --check db.js"
   },
-  "keywords": [],
+  "keywords": ["crm", "support", "tickets", "express"],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
