@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Send, Clock, User, Mail } from 'lucide-react'
+import { ArrowLeft, Send, Clock, User, Mail, AlertCircle } from 'lucide-react'
 import { format } from 'date-fns'
 
 export default function TicketDetail() {
@@ -11,23 +11,31 @@ export default function TicketDetail() {
   const [noteText, setNoteText] = useState('')
   const [savingNote, setSavingNote] = useState(false)
   const [status, setStatus] = useState('')
+  const [error, setError] = useState('')
 
   useEffect(() => {
     fetchTicket()
   }, [id])
 
   const fetchTicket = async () => {
+    setError('')
     try {
       const res = await fetch(`/api/tickets/${id}`)
-      if (res.ok) {
-        const data = await res.json()
-        setTicket(data)
-        setStatus(data.status)
-      } else {
-        navigate('/')
+      const data = await res.json().catch(() => ({}))
+
+      if (!res.ok) {
+        if (res.status === 404) {
+          navigate('/')
+          return
+        }
+        throw new Error(data.error || 'Unable to load ticket')
       }
-    } catch (error) {
-      console.error(error)
+
+      setTicket(data)
+      setStatus(data.status)
+    } catch (err) {
+      console.error(err)
+      setError(err.message || 'Unable to load ticket')
     } finally {
       setLoading(false)
     }
@@ -35,33 +43,54 @@ export default function TicketDetail() {
 
   const handleStatusChange = async (e) => {
     const newStatus = e.target.value
+    const previousStatus = status
     setStatus(newStatus)
+    setError('')
+
     try {
-      await fetch(`/api/tickets/${id}`, {
+      const res = await fetch(`/api/tickets/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus })
       })
-      fetchTicket()
-    } catch (error) {
-      console.error(error)
+      const data = await res.json().catch(() => ({}))
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Unable to update status')
+      }
+
+      await fetchTicket()
+    } catch (err) {
+      console.error(err)
+      setStatus(previousStatus)
+      setError(err.message || 'Unable to update status')
     }
   }
 
   const handleAddNote = async (e) => {
     e.preventDefault()
-    if (!noteText.trim()) return
+    const trimmedNote = noteText.trim()
+    if (!trimmedNote) return
+
     setSavingNote(true)
+    setError('')
     try {
-      await fetch(`/api/tickets/${id}`, {
+      const res = await fetch(`/api/tickets/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ notes: noteText })
+        body: JSON.stringify({ notes: trimmedNote })
       })
+      const data = await res.json().catch(() => ({}))
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Unable to add note')
+      }
+
       setNoteText('')
-      fetchTicket()
-    } catch (error) {
-      console.error(error)
+      await fetchTicket()
+    } catch (err) {
+      console.error(err)
+      setError(err.message || 'Unable to add note')
     } finally {
       setSavingNote(false)
     }
@@ -80,10 +109,25 @@ export default function TicketDetail() {
   }
 
   if (loading) return <div className="text-center py-12 text-slate-500">Loading...</div>
-  if (!ticket) return null
+  if (!ticket) {
+    return (
+      <div className="max-w-2xl mx-auto">
+        <div className="rounded-xl border border-rose-200 bg-rose-50 p-5 text-rose-700">
+          {error || 'Ticket could not be loaded.'}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
+      {error && (
+        <div className="flex items-start gap-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
+          <AlertCircle className="w-5 h-5 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <button
@@ -126,7 +170,7 @@ export default function TicketDetail() {
             {ticket.notes && ticket.notes.length > 0 ? (
               <div className="space-y-4">
                 {ticket.notes.map((note, idx) => (
-                  <div key={idx} className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+                  <div key={`${note.created_at}-${idx}`} className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
                     <p className="text-slate-800 whitespace-pre-wrap">{note.note_text}</p>
                     <div className="mt-3 flex items-center text-xs text-slate-500">
                       <Clock className="w-3.5 h-3.5 mr-1" />
