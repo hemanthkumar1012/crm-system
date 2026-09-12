@@ -6,5 +6,8 @@
     "install": "npm install --prefix backend --build-from-source=sqlite3 && npm install --prefix frontend",
     "build": "npm run build --prefix frontend",
     "start": "node backend/server.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   }
 }
