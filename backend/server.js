@@ -13,7 +13,6 @@ app.use(express.json({ limit: '1mb' }));
 let db;
 let dbReady;
 
-// Initialize the database before accepting API traffic.
 dbReady = initDb()
   .then((database) => {
     db = database;
@@ -40,9 +39,9 @@ app.get('/api/health', withDb(async (req, res) => {
 }));
 
 const generateTicketId = async () => {
-  const row = await db.get(`SELECT COUNT(*) as count FROM tickets`);
-  const count = row.count + 1;
-  return `TKT-${String(count).padStart(3, '0')}`;
+  const row = await db.get(`SELECT MAX(id) AS maxId FROM tickets`);
+  const nextId = (row?.maxId || 0) + 1;
+  return `TKT-${String(nextId).padStart(3, '0')}`;
 };
 
 app.post('/api/tickets', withDb(async (req, res) => {
@@ -62,12 +61,12 @@ app.post('/api/tickets', withDb(async (req, res) => {
     const result = await db.run(
       `INSERT INTO tickets (ticket_id, customer_name, customer_email, subject, description, priority)
        VALUES (?, ?, ?, ?, ?, ?)`,
-      [customer_name.trim(), customer_email.trim(), subject.trim(), description.trim(), priority]
+      [ticket_id, customer_name.trim(), customer_email.trim(), subject.trim(), description.trim(), priority]
     );
 
     const newTicket = await db.get(
       `SELECT ticket_id, created_at FROM tickets WHERE id = ?`,
-      result.lastID
+      [result.lastID]
     );
     res.status(201).json(newTicket);
   } catch (err) {
@@ -158,6 +157,12 @@ app.put('/api/tickets/:ticket_id', withDb(async (req, res) => {
         `INSERT INTO notes (ticket_id, note_text) VALUES (?, ?)`,
         [ticket_id, String(notes).trim()]
       );
+      if (status === undefined) {
+        await db.run(
+          `UPDATE tickets SET updated_at = CURRENT_TIMESTAMP WHERE ticket_id = ?`,
+          [ticket_id]
+        );
+      }
     }
 
     const updated = await db.get(
@@ -193,8 +198,8 @@ app.get('/api/stats', withDb(async (req, res) => {
 const frontendPath = path.join(__dirname, '../frontend/dist');
 app.use(express.static(frontendPath));
 
-// Express 5/path-to-regexp does not accept app.get('*').
-// A regex route provides the same SPA fallback without crashing at startup.
+// Express 5 no longer accepts '*' as a standalone route pattern.
+// This regex excludes /api routes and serves the React entry point for client-side routes.
 app.get(/^(?!\/api(?:\/|$)).*$/, (req, res, next) => {
   res.sendFile(path.join(frontendPath, 'index.html'), (err) => {
     if (err) next(err);
