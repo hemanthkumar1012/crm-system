@@ -10,6 +10,8 @@ async function initDb() {
     driver: sqlite3.Database
   });
 
+  await db.exec(`PRAGMA foreign_keys = ON;`);
+
   await db.exec(`
     CREATE TABLE IF NOT EXISTS tickets (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
