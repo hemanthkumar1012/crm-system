@@ -8,7 +8,7 @@ const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 
 let db;
 let dbReady;
@@ -34,24 +34,21 @@ const withDb = (handler) => async (req, res, next) => {
   }
 };
 
-// Health endpoint for deployment/platform checks.
 app.get('/api/health', withDb(async (req, res) => {
   await db.get('SELECT 1');
   res.json({ status: 'ok' });
 }));
 
-// Helper to generate Ticket ID.
 const generateTicketId = async () => {
   const row = await db.get(`SELECT COUNT(*) as count FROM tickets`);
   const count = row.count + 1;
   return `TKT-${String(count).padStart(3, '0')}`;
 };
 
-// POST /api/tickets - Create a new ticket.
 app.post('/api/tickets', withDb(async (req, res) => {
   const { customer_name, customer_email, subject, description, priority = 'Medium' } = req.body;
 
-  if (!customer_name || !customer_email || !subject || !description) {
+  if (!customer_name?.trim() || !customer_email?.trim() || !subject?.trim() || !description?.trim()) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
 
@@ -65,7 +62,7 @@ app.post('/api/tickets', withDb(async (req, res) => {
     const result = await db.run(
       `INSERT INTO tickets (ticket_id, customer_name, customer_email, subject, description, priority)
        VALUES (?, ?, ?, ?, ?, ?)`,
-      [ticket_id, customer_name, customer_email, subject, description, priority]
+      [customer_name.trim(), customer_email.trim(), subject.trim(), description.trim(), priority]
     );
 
     const newTicket = await db.get(
@@ -79,11 +76,10 @@ app.post('/api/tickets', withDb(async (req, res) => {
   }
 }));
 
-// GET /api/tickets - List tickets with optional status and search filters.
 app.get('/api/tickets', withDb(async (req, res) => {
   const { status, search } = req.query;
 
-  let query = `SELECT ticket_id, customer_name, subject, status, priority, created_at
+  let query = `SELECT ticket_id, customer_name, customer_email, subject, description, status, priority, created_at
                FROM tickets WHERE 1=1`;
   const params = [];
 
@@ -96,10 +92,10 @@ app.get('/api/tickets', withDb(async (req, res) => {
     params.push(status);
   }
 
-  if (search) {
-    query += ` AND (customer_name LIKE ? OR ticket_id LIKE ? OR customer_email LIKE ? OR description LIKE ?)`;
-    const searchPattern = `%${search}%`;
-    params.push(searchPattern, searchPattern, searchPattern, searchPattern);
+  if (search?.trim()) {
+    query += ` AND (customer_name LIKE ? OR ticket_id LIKE ? OR customer_email LIKE ? OR subject LIKE ? OR description LIKE ?)`;
+    const searchPattern = `%${search.trim()}%`;
+    params.push(searchPattern, searchPattern, searchPattern, searchPattern, searchPattern);
   }
 
   query += ` ORDER BY created_at DESC`;
@@ -113,7 +109,6 @@ app.get('/api/tickets', withDb(async (req, res) => {
   }
 }));
 
-// GET /api/tickets/:ticket_id - Get ticket details including notes.
 app.get('/api/tickets/:ticket_id', withDb(async (req, res) => {
   const { ticket_id } = req.params;
 
@@ -137,7 +132,6 @@ app.get('/api/tickets/:ticket_id', withDb(async (req, res) => {
   }
 }));
 
-// PUT /api/tickets/:ticket_id - Update ticket status and optionally add a note.
 app.put('/api/tickets/:ticket_id', withDb(async (req, res) => {
   const { ticket_id } = req.params;
   const { status, notes } = req.body;
@@ -177,7 +171,6 @@ app.put('/api/tickets/:ticket_id', withDb(async (req, res) => {
   }
 }));
 
-// Dashboard stats endpoint.
 app.get('/api/stats', withDb(async (req, res) => {
   try {
     const openCount = await db.get(`SELECT COUNT(*) as count FROM tickets WHERE status = 'Open'`);
@@ -197,28 +190,23 @@ app.get('/api/stats', withDb(async (req, res) => {
   }
 }));
 
-// Serve frontend in production.
 const frontendPath = path.join(__dirname, '../frontend/dist');
 app.use(express.static(frontendPath));
 
-// React Router fallback. Do not intercept API requests.
-app.get('*', (req, res, next) => {
-  if (req.path.startsWith('/api/')) {
-    return next();
-  }
+// Express 5/path-to-regexp does not accept app.get('*').
+// A regex route provides the same SPA fallback without crashing at startup.
+app.get(/^(?!\/api(?:\/|$)).*$/, (req, res, next) => {
   res.sendFile(path.join(frontendPath, 'index.html'), (err) => {
     if (err) next(err);
   });
 });
 
-// Centralized error handler.
 app.use((err, req, res, next) => {
   console.error(err);
   if (res.headersSent) return next(err);
   res.status(500).json({ error: 'Internal server error' });
 });
 
-// Start only after the database is ready.
 const start = async () => {
   await dbReady;
   app.listen(PORT, '0.0.0.0', () => {
