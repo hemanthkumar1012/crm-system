@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Full-stack Support CRM System",
   "scripts": {
-    "install": "npm install --prefix backend && npm install --prefix frontend",
+    "install": "npm install --prefix backend --build-from-source=sqlite3 && npm install --prefix frontend",
     "build": "npm run build --prefix frontend",
     "start": "node backend/server.js"
   }
