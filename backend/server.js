@@ -7,6 +7,10 @@ require('dotenv').config();
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
+const ALLOWED_STATUSES = new Set(['Open', 'In Progress', 'Closed']);
+const ALLOWED_PRIORITIES = new Set(['High', 'Medium', 'Low']);
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
 
@@ -47,29 +51,58 @@ const generateTicketId = async () => {
 app.post('/api/tickets', withDb(async (req, res) => {
   const { customer_name, customer_email, subject, description, priority = 'Medium' } = req.body;
 
-  if (!customer_name?.trim() || !customer_email?.trim() || !subject?.trim() || !description?.trim()) {
+  const customerName = customer_name?.trim();
+  const customerEmail = customer_email?.trim();
+  const ticketSubject = subject?.trim();
+  const ticketDescription = description?.trim();
+
+  if (!customerName || !customerEmail || !ticketSubject || !ticketDescription) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
 
-  const allowedPriorities = new Set(['High', 'Medium', 'Low']);
-  if (!allowedPriorities.has(priority)) {
+  if (!EMAIL_PATTERN.test(customerEmail)) {
+    return res.status(400).json({ error: 'Invalid email address' });
+  }
+
+  if (customerName.length > 120 || customerEmail.length > 254 || ticketSubject.length > 200 || ticketDescription.length > 10000) {
+    return res.status(400).json({ error: 'One or more fields are too long' });
+  }
+
+  if (!ALLOWED_PRIORITIES.has(priority)) {
     return res.status(400).json({ error: 'Invalid priority' });
   }
 
   try {
-    const ticket_id = await generateTicketId();
+    // Use the database row id as the source of truth for ticket numbering.
+    // The transaction prevents two concurrent requests from generating the same ticket ID.
+    await db.exec('BEGIN IMMEDIATE');
+
+    const temporaryId = `TEMP-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const result = await db.run(
       `INSERT INTO tickets (ticket_id, customer_name, customer_email, subject, description, priority)
        VALUES (?, ?, ?, ?, ?, ?)`,
-      [ticket_id, customer_name.trim(), customer_email.trim(), subject.trim(), description.trim(), priority]
+      [temporaryId, customerName, customerEmail, ticketSubject, ticketDescription, priority]
+    );
+
+    const ticket_id = `TKT-${String(result.lastID).padStart(3, '0')}`;
+    await db.run(
+      `UPDATE tickets SET ticket_id = ? WHERE id = ?`,
+      [ticket_id, result.lastID]
     );
 
     const newTicket = await db.get(
       `SELECT ticket_id, created_at FROM tickets WHERE id = ?`,
       [result.lastID]
     );
+
+    await db.exec('COMMIT');
     res.status(201).json(newTicket);
   } catch (err) {
+    try {
+      await db.exec('ROLLBACK');
+    } catch (rollbackError) {
+      console.error('Failed to roll back ticket creation', rollbackError);
+    }
     console.error(err);
     res.status(500).json({ error: 'Internal server error' });
   }
@@ -83,8 +116,7 @@ app.get('/api/tickets', withDb(async (req, res) => {
   const params = [];
 
   if (status) {
-    const allowedStatuses = new Set(['Open', 'In Progress', 'Closed']);
-    if (!allowedStatuses.has(status)) {
+    if (!ALLOWED_STATUSES.has(status)) {
       return res.status(400).json({ error: 'Invalid status' });
     }
     query += ` AND status = ?`;
@@ -141,21 +173,26 @@ app.put('/api/tickets/:ticket_id', withDb(async (req, res) => {
       return res.status(404).json({ error: 'Ticket not found' });
     }
 
+    if (status !== undefined && !ALLOWED_STATUSES.has(status)) {
+      return res.status(400).json({ error: 'Invalid status' });
+    }
+
+    const note = notes === undefined ? '' : String(notes).trim();
+    if (note.length > 10000) {
+      return res.status(400).json({ error: 'Note is too long' });
+    }
+
     if (status !== undefined) {
-      const allowedStatuses = new Set(['Open', 'In Progress', 'Closed']);
-      if (!allowedStatuses.has(status)) {
-        return res.status(400).json({ error: 'Invalid status' });
-      }
       await db.run(
         `UPDATE tickets SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE ticket_id = ?`,
         [status, ticket_id]
       );
     }
 
-    if (notes && String(notes).trim()) {
+    if (note) {
       await db.run(
         `INSERT INTO notes (ticket_id, note_text) VALUES (?, ?)`,
-        [ticket_id, String(notes).trim()]
+        [ticket_id, note]
       );
       if (status === undefined) {
         await db.run(
