@@ -18,7 +18,7 @@ export default function TicketDetail() {
 
   const fetchTicket = async () => {
     try {
-      const res = await fetch(`http://localhost:3000/api/tickets/${id}`)
+      const res = await fetch(`/api/tickets/${id}`)
       if (res.ok) {
         const data = await res.json()
         setTicket(data)
@@ -37,7 +37,7 @@ export default function TicketDetail() {
     const newStatus = e.target.value
     setStatus(newStatus)
     try {
-      await fetch(`http://localhost:3000/api/tickets/${id}`, {
+      await fetch(`/api/tickets/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus })
@@ -53,7 +53,7 @@ export default function TicketDetail() {
     if (!noteText.trim()) return
     setSavingNote(true)
     try {
-      await fetch(`http://localhost:3000/api/tickets/${id}`, {
+      await fetch(`/api/tickets/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ notes: noteText })

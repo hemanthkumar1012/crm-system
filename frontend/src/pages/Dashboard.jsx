@@ -20,7 +20,7 @@ export default function Dashboard() {
 
   const fetchStats = async () => {
     try {
-      const res = await fetch('http://localhost:3000/api/stats')
+      const res = await fetch('/api/stats')
       if (res.ok) {
         const data = await res.json()
         setStats(data)
@@ -37,7 +37,7 @@ export default function Dashboard() {
       if (search) query.append('search', search)
       if (statusFilter) query.append('status', statusFilter)
       
-      const res = await fetch(`http://localhost:3000/api/tickets?${query.toString()}`)
+      const res = await fetch(`/api/tickets?${query.toString()}`)
       if (res.ok) {
         const data = await res.json()
         setTickets(data)
