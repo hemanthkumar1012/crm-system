@@ -9,7 +9,7 @@
     "test": "node --check server.js && node --check db.js"
   },
   "keywords": ["crm", "support", "tickets", "express"],
-  "author": "Hemanth Kumar",
+  "author": "V. Hemanth Kumar",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
